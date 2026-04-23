@@ -1,6 +1,146 @@
 import pygame
 import time
 import math
+from functions import image_to_list,scale_rect
+
+pygame.init()
+font = pygame.font.SysFont("dejavusans", 16)
+font_sm = pygame.font.SysFont("dejavusans", 13)
+font_big = pygame.font.SysFont("dejavusans", 22, bold=True)
+font_verybig = pygame.font.SysFont("dejavusans", 50, bold=True)
+class Label:
+    def __init__(self,pos,text,font:pygame.font.Font,color,border=-1,function=None,border_color=None,padding=5,pos_type=0):
+        self.padding=padding
+        self.txt=font.render(text,False,color)
+        self.rect=self.txt.get_rect()
+        if pos_type==0:
+            self.rect.topleft=(pos[0]-self.txt.get_width()//2-padding,pos[1])
+        else:
+            self.rect.topleft=(pos[0]-padding,pos[1])
+
+        self.rect.w+=padding*2
+        self.border=border
+        self.bc=border_color
+        self.function=function
+    def draw(self,screen):
+        if self.border!=-1:
+            pygame.draw.rect(screen,self.bc,self.rect,self.border,border_radius=5)
+        screen.blit(self.txt,(self.rect.x+self.padding,self.rect.y))
+    def get_width(self):
+        return self.rect.w
+    def get_height(self):
+        return self.rect.h
+    def update(self):
+        if not self.function:
+            return
+        if pygame.mouse.get_pressed()[0]:
+            if self.rect.collidepoint(pygame.mouse.get_pos()):
+                self.function()
+
+class Label_list:
+    def __init__(self,x,y,max_width,font:pygame.font.Font,texts,color,label=None,label_font=None):
+        self.x=x
+        self.y=y
+        self.w=max_width
+        self.font=font
+        self.generate_labels(texts,color)
+    def generate_labels(self,texts,color):
+        self.labels=[]
+        self.helpers=[]
+        x=self.x
+        y=self.y
+        self.helpers.append(Label((x,y),"[",self.font,color,pos_type=1,padding=0))
+        x+=self.helpers[-1].get_width()
+        for i in texts[:-1]:
+            self.labels.append(Label((x,y),str(i),self.font,color,pos_type=1,padding=0))
+            x+=self.labels[-1].get_width()
+            self.helpers.append(Label((x,y),", ",self.font,color,pos_type=1,padding=0))
+            x+=self.helpers[-1].get_width()
+            if x-self.x>=self.w:
+                x=self.x
+                y+=self.labels[-1].get_height()
+        x-=self.helpers[-1].get_width()
+        self.helpers.pop()
+        self.helpers.append(Label((x,y),"]",self.font,color,pos_type=1))
+    def draw(self,screen):
+        for i ,j in zip(self.helpers,self.labels):
+            i.draw(screen),j.draw(screen)
+    def update(self):
+        for i ,j in zip(self.helpers,self.labels):
+            i.update(),j.update()
+
+
+class InputBoard:
+    def __init__(self,width,heigt,rows,cols,offset=(0,0),padding=7,image=None):
+        self.width=width
+        self.height=heigt
+        self.rows=rows
+        self.cols=cols
+        self.tile_w=self.width//self.cols
+        self.tile_h=self.height//self.rows
+
+        self.color=False
+        if image:
+            self.color=True
+            self.tiles=image_to_list(rows,cols,image)
+        else: self.tiles=[0 for i in range(self.rows*self.cols)]
+
+        print(self.tiles)
+        self.surface=pygame.Surface((self.width+padding*2,self.height+padding*2))
+
+        self.padding=padding
+        self.offset=offset
+
+        self.list=Label_list(300,600,600,font_verybig,self.tiles,(255,255,255))
+    def draw_white(self,i,j):
+        rect=pygame.Rect((i*self.tile_w+self.padding,j*self.tile_h+self.padding,self.tile_w,self.tile_h))
+        if self.tiles[i*self.rows+j]:
+            color=[int(self.tiles[i*self.rows+j]*255)]*3
+            pygame.draw.rect(self.surface,color,rect)
+    def draw_color(self,i,j):
+        rect=pygame.Rect((i*self.tile_w+self.padding,j*self.tile_h+self.padding,self.tile_w,self.tile_h))
+        pygame.draw.rect(self.surface,self.tiles[i*self.rows+j],rect)
+    def draw(self,screen,pos):
+        self.surface.fill((0,0,0))
+        color2=(50,50,50)
+        for i in range(self.cols):
+            for j in range(self.rows):
+                if self.color: self.draw_color(i,j)
+                else: self.draw_white(i,j)
+                rect=pygame.Rect((i*self.tile_w+self.padding,j*self.tile_h+self.padding,self.tile_w,self.tile_h))
+                pygame.draw.rect(self.surface,color2,rect,width=1)
+
+
+        color=(200,130,120)
+        pygame.draw.rect(self.surface,color,pygame.Rect(0,0,self.width+self.padding,self.height+self.padding),width=self.padding,border_radius=10)
+        self.list.draw(screen)
+
+
+        for i in range(self.cols):
+            for j in range(self.rows):
+                rect=pygame.Rect((i*self.tile_w+self.padding+pos[0],j*self.tile_h+self.padding+pos[1],self.tile_w,self.tile_h))
+                if rect.collidepoint(pygame.mouse.get_pos()):
+                    pygame.draw.rect(screen,(20,200,30),scale_rect(self.list.labels[i*self.rows+j ].rect,5,3),width=3,border_radius=2)
+
+        return self.surface
+    def update(self):
+
+        mouse_pos=pygame.mouse.get_pos()
+        mouse_pos=(mouse_pos[0]-self.offset[0]-self.padding,mouse_pos[1]-self.offset[1]-self.padding)
+        mouse_pressed=pygame.mouse.get_pressed()
+        keys=pygame.key.get_pressed()
+
+    def set_white(self,tiles,rows,cols):
+        self.color=False
+        self.tiles=tiles
+        self.rows=rows
+        self.cols=cols
+        self.tile_w=self.width//self.cols
+        self.tile_h=self.height//self.rows
+
+        self.list=Label_list(200,500,800,font,self.tiles,(255,255,255))
+
+
 
 class Board:
     def __init__(self,width,heigt,rows,cols,radius=5,offset=(0,0),padding=7):

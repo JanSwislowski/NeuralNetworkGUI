@@ -1,81 +1,47 @@
+import pygame
 from neural_network import NeuralNetwork
 from nn_vis import NeuralNetworkVisualizer
-from assets import Board,ProbabilityTable,Picker
-from functions import image_to_list
-import pygame
+from assets import Board,ProbabilityTable,Picker,Label,InputBoard
 pygame.init()
-class InputBoard:
-    def __init__(self,width,heigt,rows,cols,offset=(0,0),padding=7,image=None):
-        self.width=width
-        self.height=heigt
-        self.rows=rows
-        self.cols=cols
-        self.tile_w=self.width//self.cols
-        self.tile_h=self.height//self.rows
 
-        self.color=False
-        if image:
-            self.color=True
-            self.tiles=image_to_list(rows,cols,image)
-        else: self.tiles=[0 for i in range(self.rows*self.cols)]
-
-        print(self.tiles)
-        self.surface=pygame.Surface((self.width+padding*2,self.height+padding*2))
-
-        self.padding=padding
-        self.offset=offset
-
-    def draw_white(self,i,j):
-        rect=pygame.Rect((i*self.tile_w+self.padding,j*self.tile_h+self.padding,self.tile_w,self.tile_h))
-        if self.tiles[i*self.rows+j]:
-            color=[int(self.tiles[i*self.rows+j]*255)]*3
-            pygame.draw.rect(self.surface,color,rect)
-    def draw_color(self,i,j):
-        rect=pygame.Rect((i*self.tile_w+self.padding,j*self.tile_h+self.padding,self.tile_w,self.tile_h))
-        pygame.draw.rect(self.surface,self.tiles[i*self.rows+j],rect)
-    def draw(self):
-        self.surface.fill((0,0,0))
-        color2=(50,50,50)
-        for i in range(self.cols):
-            for j in range(self.rows):
-                if self.color: self.draw_color(i,j)
-                else: self.draw_white(i,j)
-
-                rect=pygame.Rect((i*self.tile_w+self.padding,j*self.tile_h+self.padding,self.tile_w,self.tile_h))
-                pygame.draw.rect(self.surface,color2,rect,width=1)
-
-        color=(200,130,120)
-        pygame.draw.rect(self.surface,color,pygame.Rect(0,0,self.width+self.padding,self.height+self.padding),width=self.padding,border_radius=10)
-        return self.surface
-    def update(self):
-
-        mouse_pos=pygame.mouse.get_pos()
-        mouse_pos=(mouse_pos[0]-self.offset[0]-self.padding,mouse_pos[1]-self.offset[1]-self.padding)
-        mouse_pressed=pygame.mouse.get_pressed()
-        keys=pygame.key.get_pressed()
-
-    def set_white(self,tiles):
-        self.color=False
-        self.tiles=tiles
-
+font = pygame.font.SysFont("dejavusans", 16)
+font_sm = pygame.font.SysFont("dejavusans", 13)
+font_big = pygame.font.SysFont("dejavusans", 22, bold=True)
+font_verybig = pygame.font.SysFont("dejavusans", 50, bold=True)
 class Input_page:
-    def __init__(self):
-        # board_w=
+    def __init__(self,prev_page_lambda):
+        board_w=400
+        board_h=400
+        self.exit=Label((70,10),"<-",font_verybig,(155,155,155),5,border_color=(200,0,0),function=prev_page_lambda,padding=10)
+        self.boards_pos=(600-board_w//2,50)
         self.boards={
-            "board1":InputBoard()
+            "board1":InputBoard(board_w,board_h,3,3,self.boards_pos,4)
         }
+        self.current_board="board1"
+    def reset(self):
+        self.current_board="board1"
+    def draw(self,screen):
+        self.exit.draw(screen)
+        screen.blit(self.boards[self.current_board].draw(screen,self.boards_pos),self.boards_pos)
+    def set_board(self,board:Board):
+        self.boards["board1"].set_white(board.tiles,board.rows,board.cols)
+    def update(self):
+        self.boards[self.current_board].update()
+        self.exit.update()
+    def handle_events(self,ev):
+        return
 class Mainpage:
-    def __init__(self,cols:int,rows:int,network_file:str,labels:list):
+    def __init__(self,cols:int,rows:int,network_file:str,labels:list,input_page_lambda,output_page_lambda):
         self.labels=labels
         self.nn=NeuralNetwork.load(network_file)
 
-        self.font     = pygame.font.SysFont("dejavusans", 16)
-        self.font_sm  = pygame.font.SysFont("dejavusans", 13)
-        self.font_big = pygame.font.SysFont("dejavusans", 22, bold=True)
+        self.font     = font
+        self.font_sm  = font_sm
+        self.font_big = font_big
 
         board_w=400
         board_h=400
-        self.board_pos=(50,120)
+        self.board_pos=(50,80)
         pr=2
         self.board=Board(board_w,board_h,rows,cols,pr,self.board_pos)
 
@@ -86,8 +52,11 @@ class Mainpage:
 
         vis_w=650
         vis_h=600
-        self.vispos=(500,120)
+        self.vispos=(500,110)
         self.vis=NeuralNetworkVisualizer(self.nn,vis_w,vis_h,offset=self.vispos)
+
+        self.input_label=Label((self.table_pos[0]+table_w//2,10),"Wejście:",font_verybig,(255,255,255),function=input_page_lambda)
+        self.output_label=Label((self.table_pos[0]+table_w//2,510),"Wyjście:",font_verybig,(255,255,255),function=output_page_lambda)
 
         self.forward_input()
     def forward_input(self):
@@ -98,22 +67,41 @@ class Mainpage:
     def update(self):
         if self.board.update():
             self.forward_input()
+        self.input_label.update()
+        self.output_label.update()
     def handle_events(self,event):
         self.vis.handle_event(event)
+    def reset(self):
+        return
 
     def draw(self,screen):
         screen.blit(self.board.draw(),self.board_pos)
         screen.blit(self.table.draw(),self.table_pos)
         self.vis.draw()
         screen.blit(self.vis.surface,self.vispos)
+        self.input_label.draw(screen)
+        self.output_label.draw(screen)
 class App:
     def __init__(self):
         self.WIDTH, self.HEIGHT = 1200, 800
         self.screen=pygame.display.set_mode((self.WIDTH,self.HEIGHT))
         self.pages={
-            "MNIST":Mainpage(28,28,"mnist_model.npz",[str(i) for i in range(10)])
+            "MNIST":Mainpage(28,28,"mnist_model.npz",[str(i) for i in range(10)],lambda: self.switch_pages("Input"),lambda: self.switch_pages("Output")),
+            "Input":Input_page(lambda: self.switch_pages("previous"))
         }
         self.current_page="MNIST"
+        self.previous_page=None
+    def switch_pages(self,page):
+        if page=="previous":
+            if not self.previous_page: return
+            self.current_page=self.previous_page
+            return
+        if page=="Input":
+            self.pages[page].reset()
+            self.pages[page].set_board(self.pages[self.current_page].board)
+
+        self.previous_page=self.current_page
+        self.current_page=page
     def update(self):
         self.pages[self.current_page].update()
     def handle_events(self):

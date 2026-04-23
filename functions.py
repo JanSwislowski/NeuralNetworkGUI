@@ -64,3 +64,5 @@ def image_to_list(rows, cols, file):
             )
             l.append(color)
     return l
+def scale_rect(rect:pygame.Rect,dw,dh):
+    return pygame.Rect(rect.x-dw,rect.y-dh,rect.w+dw*2,rect.h+dh*2)
