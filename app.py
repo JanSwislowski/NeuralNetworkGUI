@@ -197,7 +197,7 @@ class App:
         self.picker=Picker_with_func(850, 30, 200, 50, ["MNIST", "XO"], font_big, func,)
         self.pages={
             "MNIST":Mainpage(28,28,"mnist_model.npz",[str(i) for i in range(10)],lambda: self.switch_pages("Input"),lambda: self.switch_pages("Output"),radius=2,alfa=0.4),
-            "XO": Mainpage(3,3,"xo_model.npz",["x","o"],lambda: self.switch_pages("Input"),lambda: self.switch_pages("Output"),radius=1,alfa=0.2),
+            "XO": Mainpage(3,3,"xo_model.npz",["x","o"],lambda: self.switch_pages("Input"),lambda: self.switch_pages("Output"),radius=1,alfa=0.1 ),
             "Input":Input_page(lambda: self.switch_pages("previous")),
             "Output":Output_page(lambda: self.switch_pages("previous")),
         }
