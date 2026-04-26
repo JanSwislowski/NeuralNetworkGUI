@@ -33,7 +33,6 @@ Usage
 """
 
 import math
-from neural_network import NeuralNetwork
 import numpy as np
 import pygame
 
@@ -132,139 +131,229 @@ class _Camera:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Detail panel
+# Detail panel  (fullscreen overlay)
 # ──────────────────────────────────────────────────────────────────────────────
 
 class _DetailPanel:
-    W = 300
-    PAD = 14
+    PAD        = 36       # outer margin
+    MARGIN     = 20       # inner margin
+    CHIP_W     = 160      # width of each input/weight chip
+    CHIP_H     = 48       # height of each chip
+    CHIP_GAP_X = 12
+    CHIP_GAP_Y = 10
+    MAX_ITEMS  = 5       # max inputs / weights to show
 
     def __init__(self):
-        self.visible  = False
-        self.layer_idx   = 0
-        self.neuron_idx  = 0
-        self.nn       = None
-        self._scroll  = 0
-        self._font_h  = None
-        self._font_b  = None
+        self.visible    = False
+        self.layer_idx  = 0
+        self.neuron_idx = 0
+        self.nn         = None
+        self._close_rect = pygame.Rect(0, 0, 0, 0)
 
     def show(self, nn, layer_idx, neuron_idx):
         self.nn         = nn
         self.layer_idx  = layer_idx
         self.neuron_idx = neuron_idx
         self.visible    = True
-        self._scroll    = 0
 
     def hide(self):
         self.visible = False
 
-    def scroll(self, dy):
-        self._scroll = max(0, self._scroll - dy * 20)
+    def hit_close(self, pos):
+        return self._close_rect.collidepoint(pos)
+
+    # ── chip grid helper ──────────────────────────────────────────────────────
+
+    def _draw_chip_grid(self, surface, items, x0, y0, available_w, fonts,
+                        label_fn, value_fn, colour_fn, total_count):
+        """
+        Draw items as chips flowing left→right, wrapping down.
+        items   : list of values to show (already truncated to MAX_ITEMS)
+        label_fn(i, v) → str   small label text
+        value_fn(i, v) → str   value text
+        colour_fn(v)   → RGB   chip accent colour
+        total_count    : real count (for "… N more" footer)
+        Returns the y coordinate after the last row.
+        """
+        fh, fb, ft = fonts
+        CW, CH = self.CHIP_W, self.CHIP_H
+        GX, GY = self.CHIP_GAP_X, self.CHIP_GAP_Y
+        cols = max(1, (available_w + GX) // (CW + GX))
+
+        cy = y0
+        for idx, v in enumerate(items):
+            col_i = idx % cols
+            row_i = idx // cols
+            cx = x0 + col_i * (CW + GX)
+            cy_chip = y0 + row_i * (CH + GY)
+
+            accent = colour_fn(v)
+            dark   = tuple(max(0, c - 120) for c in accent)
+
+            # chip background
+            chip_rect = pygame.Rect(cx, cy_chip, CW, CH)
+            pygame.draw.rect(surface, (28, 32, 52), chip_rect, border_radius=6)
+            # left accent bar
+            pygame.draw.rect(surface, accent,
+                             pygame.Rect(cx, cy_chip, 4, CH), border_radius=3)
+            # label
+            lbl = ft.render(label_fn(idx, v), True, _TEXT_DIM)
+            surface.blit(lbl, (cx + 10, cy_chip + 4))
+            # value
+            val_txt = value_fn(idx, v)
+            val_col = _lerp_colour(_TEXT_DIM, accent, min(1.0, abs(v)))
+            val = fb.render(val_txt, True, val_col)
+            surface.blit(val, (cx + 10, cy_chip + CH - val.get_height() - 5))
+
+            cy = cy_chip + CH  # track last row bottom
+
+        n_rows = math.ceil(len(items) / cols)
+        bottom = y0 + n_rows * (CH + GY) - GY
+
+        shown = len(items)
+        if total_count > shown:
+            more = ft.render(f"… {total_count - shown} more not shown", True, _TEXT_DIM)
+            surface.blit(more, (x0, bottom + 6))
+            bottom += more.get_height() + 6
+
+        return bottom
 
     # ── draw ──────────────────────────────────────────────────────────────────
+
     def draw(self, surface, fonts):
         if not self.visible or self.nn is None:
             return
 
-        fh, fb = fonts                   # heading, body
-        sw, sh  = surface.get_size()
-        x0      = sw - self.W - 10
-        y0      = 10
-        H       = sh - 20
+        fh, fb, ft = fonts
+        sw, sh = surface.get_size()
+        P  = self.PAD
+        M  = self.MARGIN
 
-        # Panel background
-        panel_surf = pygame.Surface((self.W, H), pygame.SRCALPHA)
-        panel_surf.fill((*_PANEL_BG, 230))
-        pygame.draw.rect(panel_surf, _PANEL_BORDER, (0, 0, self.W, H), 2, border_radius=8)
-        surface.blit(panel_surf, (x0, y0))
+        # ── dim backdrop ──────────────────────────────────────────────────────
+        dim = pygame.Surface((sw, sh), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 170))
+        surface.blit(dim, (0, 0))
 
-        layer  = self.nn.layers[self.layer_idx]
-        ni     = self.neuron_idx
-        P      = self.PAD
-        cx     = x0 + P
-        cy     = y0 + P - self._scroll
+        # ── window rect ───────────────────────────────────────────────────────
+        wx0 = P
+        wy0 = P
+        ww  = sw - 2 * P
+        wh  = sh - 2 * P
 
-        def write(text, colour=_TEXT_MAIN, bold=False, indent=0):
-            nonlocal cy
-            font   = fb
-            rendered = font.render(text, True, colour)
-            surface.blit(rendered, (cx + indent, cy))
-            cy += rendered.get_height() + 3
+        win = pygame.Surface((ww, wh), pygame.SRCALPHA)
+        win.fill((*_PANEL_BG, 248))
+        pygame.draw.rect(win, _PANEL_BORDER, (0, 0, ww, wh), 2, border_radius=12)
+        surface.blit(win, (wx0, wy0))
 
-        def divider():
-            nonlocal cy
-            pygame.draw.line(surface, _PANEL_BORDER,
-                             (x0 + P, cy + 2), (x0 + self.W - P, cy + 2))
-            cy += 10
+        # inner content area
+        ix = wx0 + M
+        iy = wy0 + M
+        iw = ww - 2 * M
 
-        # Clip drawing to panel
-        old_clip = surface.get_clip()
-        surface.set_clip(pygame.Rect(x0, y0, self.W, H))
+        layer = self.nn.layers[self.layer_idx]
+        ni    = self.neuron_idx
 
-        # ── Header ────────────────────────────────────────────────────────────
-        title = fh.render(f"Layer {self.layer_idx + 1}  Neuron {ni}", True, _TEXT_ACCENT)
-        surface.blit(title, (cx, cy))
-        cy += title.get_height() + 6
-        divider()
+        # ── close button ──────────────────────────────────────────────────────
+        cr = pygame.Rect(wx0 + ww - 36, wy0 + 8, 28, 28)
+        pygame.draw.circle(surface, (160, 50, 50), cr.center, 14)
+        pygame.draw.circle(surface, (220, 80, 80), cr.center, 14, 2)
+        x_lbl = fh.render("×", True, (255, 255, 255))
+        surface.blit(x_lbl, x_lbl.get_rect(center=cr.center))
+        self._close_rect = cr
 
+        cy = iy  # running y cursor
+
+        # ── title bar ─────────────────────────────────────────────────────────
         act_fn = layer.activation.upper()
-        write(f"Activation fn : {act_fn}", _TEXT_ACCENT)
-        divider()
+        title  = fh.render(
+            f"Layer {self.layer_idx + 1}   ·   Neuron {ni}   ·   {act_fn}",
+            True, _TEXT_ACCENT)
+        surface.blit(title, (ix, cy))
+        cy += title.get_height() + 8
+        pygame.draw.line(surface, _PANEL_BORDER, (ix, cy), (ix + iw, cy))
+        cy += 14
 
-        # ── Input vector ──────────────────────────────────────────────────────
-        write("Input (x)", _TEXT_DIM)
-        if layer.input is not None:
+        # ── summary row (z, activation value) ────────────────────────────────
+        has_data = layer.input is not None and layer.output is not None
+        if has_data:
             inp = np.asarray(layer.input).flatten()
-            for j, v in enumerate(inp):
-                write(f"  x[{j}] = {v:+.4f}", _TEXT_MAIN, indent=4)
-        else:
-            write("  (no forward pass yet)", _TEXT_DIM)
-        divider()
-
-        # ── Weights for this neuron ────────────────────────────────────────────
-        write("Weights W[neuron, :]", _TEXT_DIM)
-        w_row = layer.W[ni]
-        for j, w in enumerate(w_row):
-            col = _lerp_colour((200, 80, 80), (80, 200, 180), (w + 2) / 4)
-            write(f"  W[{ni},{j}] = {w:+.4f}", col, indent=4)
-        divider()
-
-        # ── Bias ──────────────────────────────────────────────────────────────
-        bias = layer.b[ni]
-        write("Bias", _TEXT_DIM)
-        write(f"  b[{ni}] = {bias:+.4f}", _TEXT_MAIN, indent=4)
-        divider()
-
-        # ── Pre-activation ────────────────────────────────────────────────────
-        write("Pre-activation  z = W·x + b", _TEXT_DIM)
-        if layer.input is not None:
-            inp = np.asarray(layer.input).flatten()
-            z = float(layer.W[ni] @ inp + layer.b[ni])
-            write(f"  z = {z:+.4f}", _TEXT_MAIN, indent=4)
-        else:
-            write("  (no forward pass yet)", _TEXT_DIM)
-        divider()
-
-        # ── Output / activation value ──────────────────────────────────────────
-        write("Output  a = f(z)", _TEXT_DIM)
-        if layer.output is not None:
             out = np.asarray(layer.output).flatten()
-            a = float(out[ni]) if ni < len(out) else float("nan")
-            write(f"  a[{ni}] = {a:+.4f}", _TEXT_ACCENT, indent=4)
+            z   = float(layer.W[ni] @ inp + layer.b[ni])
+            a   = float(out[ni]) if ni < len(out) else float("nan")
+            bias = float(layer.b[ni])
+
+            summary_items = [
+                ("bias  b",       f"{bias:+.5f}", (160, 140, 220)),
+                ("pre-act  z",    f"{z:+.5f}",   (200, 180, 80)),
+                (f"{act_fn}(z)",  f"{a:+.5f}",   (80, 210, 140)),
+            ]
+            box_w = (iw - 2 * self.CHIP_GAP_X) // 3
+            for bi, (lbl_txt, val_txt, col) in enumerate(summary_items):
+                bx = ix + bi * (box_w + self.CHIP_GAP_X)
+                by = cy
+                pygame.draw.rect(surface, (22, 26, 44),
+                                 pygame.Rect(bx, by, box_w, 54), border_radius=8)
+                pygame.draw.rect(surface, col,
+                                 pygame.Rect(bx, by, box_w, 4), border_radius=3)
+                lbl_s = ft.render(lbl_txt, True, _TEXT_DIM)
+                val_s = fb.render(val_txt, True, col)
+                surface.blit(lbl_s, (bx + 10, by + 8))
+                surface.blit(val_s, (bx + 10, by + 54 - val_s.get_height() - 8))
+            cy += 54 + 18
         else:
-            write("  (no forward pass yet)", _TEXT_DIM)
+            note = fb.render("No forward pass data yet.", True, _TEXT_DIM)
+            surface.blit(note, (ix, cy))
+            cy += note.get_height() + 18
 
-        # Close button  ×
-        close_r = pygame.Rect(x0 + self.W - 28, y0 + 6, 22, 22)
-        pygame.draw.circle(surface, (180, 60, 60), close_r.center, 11)
-        lbl = fb.render("×", True, (255, 255, 255))
-        surface.blit(lbl, lbl.get_rect(center=close_r.center))
+        pygame.draw.line(surface, _PANEL_BORDER, (ix, cy), (ix + iw, cy))
+        cy += 14
 
-        surface.set_clip(old_clip)
-        self._close_rect = close_r
+        # ── split: inputs left, weights right ─────────────────────────────────
+        half_w   = (iw - 24) // 2
+        left_x   = ix
+        right_x  = ix + half_w + 24
 
-    def hit_close(self, pos):
-        return hasattr(self, "_close_rect") and self._close_rect.collidepoint(pos)
+        # section headers
+        ih = fb.render("Inputs  x[i]", True, _TEXT_DIM)
+        wh_lbl = fb.render(f"Weights  W[{ni}, i]", True, _TEXT_DIM)
+        surface.blit(ih,     (left_x,  cy))
+        surface.blit(wh_lbl, (right_x, cy))
+        cy += ih.get_height() + 8
+
+        # vertical divider between the two columns
+        mid_x = ix + half_w + 12
+        pygame.draw.line(surface, _PANEL_BORDER,
+                         (mid_x, cy - 6), (mid_x, wy0 + wh - M))
+
+        if has_data:
+            inp   = np.asarray(layer.input).flatten()
+            w_row = layer.W[ni]
+
+            inp_show = inp[:self.MAX_ITEMS].tolist()
+            w_show   = w_row[:self.MAX_ITEMS].tolist()
+
+            def inp_colour(v):
+                return _neuron_colour(v)
+
+            def w_colour(v):
+                return _weight_colour(v)
+
+            bottom_inp = self._draw_chip_grid(
+                surface, inp_show, left_x, cy, half_w, fonts,
+                label_fn=lambda i, v: f"x[{i}]",
+                value_fn=lambda i, v: f"{v:+.4f}",
+                colour_fn=inp_colour,
+                total_count=len(inp))
+
+            bottom_w = self._draw_chip_grid(
+                surface, w_show, right_x, cy, half_w, fonts,
+                label_fn=lambda i, v: f"W[{ni},{i}]",
+                value_fn=lambda i, v: f"{v:+.4f}",
+                colour_fn=w_colour,
+                total_count=len(w_row))
+        else:
+            note = fb.render("Run a forward pass to see values.", True, _TEXT_DIM)
+            surface.blit(note, (left_x, cy))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -314,13 +403,12 @@ class NeuralNetworkVisualizer:
     # ── layout ────────────────────────────────────────────────────────────────
 
     def _compute_positions(self):
-        """Return list of lists of (wx, wy) world positions for every neuron."""
+        """Return list of lists of (wx, wy) world positions.
+        Index li corresponds to nn.layers[li] (output neurons).
+        Input layer is NOT shown."""
         nn = self.nn
-        n_layers = len(nn.layers) + 1          # input layer + hidden/output layers
-
-        # layer widths
-        sizes = [nn.layer_sizes[0]] + [nn.layer_sizes[i + 1]
-                                        for i in range(len(nn.layers))]
+        sizes = [nn.layer_sizes[i + 1] for i in range(len(nn.layers))]
+        n_layers = len(sizes)
 
         total_w = (n_layers - 1) * self.LAYER_GAP
         start_x = -total_w / 2
@@ -344,14 +432,13 @@ class NeuralNetworkVisualizer:
         if self._font_body is not None:
             return
         try:
-            self._font_heading = pygame.font.SysFont("consolas", 15, bold=True)
-            self._font_body    = pygame.font.SysFont("consolas", 13)
-            self._font_tiny    = pygame.font.SysFont("consolas", 10)
+            self._font_heading = pygame.font.SysFont("consolas", 22, bold=True)
+            self._font_body    = pygame.font.SysFont("consolas", 18)
+            self._font_tiny    = pygame.font.SysFont("consolas", 14)
         except Exception:
-            self._font_heading = pygame.font.Font(None, 18)
-            self._font_body    = pygame.font.Font(None, 15)
-            self._font_tiny    = pygame.font.Font(None, 12)
-
+            self._font_heading = pygame.font.Font(None, 26)
+            self._font_body    = pygame.font.Font(None, 22)
+            self._font_tiny    = pygame.font.Font(None, 17)
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _ws(self, wx, wy):
@@ -363,22 +450,13 @@ class NeuralNetworkVisualizer:
         return self._cam.screen_to_world(sx, sy, self.width, self.height)
 
     def _neuron_activation(self, layer_idx, neuron_idx):
-        """Return the activation value (float) for a neuron, or 0 if no pass."""
-        nn = self.nn
-        if layer_idx == 0:
-            # input layer – show raw input if available
-            if nn.layers[0].input is not None:
-                inp = np.asarray(nn.layers[0].input).flatten()
-                if neuron_idx < len(inp):
-                    return float(inp[neuron_idx])
-            return 0.0
-        else:
-            layer = nn.layers[layer_idx - 1]
-            if layer.output is not None:
-                out = np.asarray(layer.output).flatten()
-                if neuron_idx < len(out):
-                    return float(out[neuron_idx])
-            return 0.0
+        """Return the output activation for nn.layers[layer_idx] neuron neuron_idx."""
+        layer = self.nn.layers[layer_idx]
+        if layer.output is not None:
+            out = np.asarray(layer.output).flatten()
+            if neuron_idx < len(out):
+                return float(out[neuron_idx])
+        return 0.0
 
     def _hit_neuron(self, sx, sy):
         """Return (layer_idx, neuron_idx) under screen pos, or None."""
@@ -396,13 +474,15 @@ class NeuralNetworkVisualizer:
         """Convert a window-space position to surface-local coordinates."""
         return (screen_pos[0] - self.offset[0], screen_pos[1] - self.offset[1])
 
-    def handle_event(self, event):
+    def handle_event(self, event,mp):
         cam = self._cam
         sw, sh = self.width, self.height
+
         if event.type == pygame.MOUSEBUTTONDOWN:
-            pos = self._local_pos(event.pos)
+            pos = self._local_pos(mp)
             if not pygame.Rect(0,0,self.width,self.height).collidepoint(pos):
                 return
+            pos = self._local_pos(mp)
             if event.button == 1:
                 # Check detail-panel close button first
                 if self._panel.visible and self._panel.hit_close(pos):
@@ -411,15 +491,9 @@ class NeuralNetworkVisualizer:
                 hit = self._hit_neuron(*pos)
                 if hit:
                     li, ni = hit
-                    # zoom camera to neuron
                     wx, wy = self._positions[li][ni]
                     cam.focus_on(wx, wy, target_zoom=max(cam.tzoom, 2.0))
-                    # show detail panel
-                    if li == 0:
-                        # input layer has no Layer object; use first real layer as proxy
-                        self._panel.show(self.nn, 0, ni)
-                    else:
-                        self._panel.show(self.nn, li - 1, ni)
+                    self._panel.show(self.nn, li, ni)
                 else:
                     self._panning   = True
                     self._pan_start = pos
@@ -431,7 +505,7 @@ class NeuralNetworkVisualizer:
                 self._panning = False
 
         elif event.type == pygame.MOUSEMOTION:
-            pos = self._local_pos(event.pos)
+            pos = self._local_pos(mp)
             if self._panning:
                 dx = pos[0] - self._pan_start[0]
                 dy = pos[1] - self._pan_start[1]
@@ -440,7 +514,9 @@ class NeuralNetworkVisualizer:
             self._hovered = self._hit_neuron(*pos)
 
         elif event.type == pygame.MOUSEWHEEL:
-            mx, my = self._local_pos(pygame.mouse.get_pos())
+            mx, my = self._local_pos(mp)
+            if self._panel.visible:
+                pass  # panel has no scroll; wheel zooms as normal
             factor = 1.12 if event.y > 0 else 1 / 1.12
             cam.zoom_at(mx, my, sw, sh, factor)
 
@@ -467,7 +543,7 @@ class NeuralNetworkVisualizer:
         self._draw_neurons(surf)
         self._draw_layer_labels(surf)
         self._draw_hud(surf)
-        self._panel.draw(surf, (self._font_heading, self._font_body))
+        self._panel.draw(surf, (self._font_heading, self._font_body, self._font_tiny))
 
     # ── connections ───────────────────────────────────────────────────────────
 
@@ -475,14 +551,16 @@ class NeuralNetworkVisualizer:
         cam   = self._cam
         nn    = self.nn
         zoom  = cam.zoom
-        # Only draw connections when zoom is sufficient (performance)
         min_alpha = 15 if zoom > 0.4 else 0
 
         conn_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
 
         for li, layer in enumerate(nn.layers):
-            src_positions = self._positions[li]       # input side
-            dst_positions = self._positions[li + 1]   # output side
+            dst_positions = self._positions[li]
+            # skip connections from the (removed) input layer
+            if li == 0:
+                continue
+            src_positions = self._positions[li - 1]
 
             for ni, (sx, sy) in enumerate(src_positions):
                 ssx, ssy = self._ws(sx, sy)
@@ -516,19 +594,17 @@ class NeuralNetworkVisualizer:
                 act    = self._neuron_activation(li, ni)
                 col    = _neuron_colour(act)
 
-                # Glow ring for hovered / selected
-                is_hovered = self._hovered == (li, ni)
+                is_hovered  = self._hovered == (li, ni)
                 is_selected = (self._panel.visible and
-                               self._panel.layer_idx == (li - 1) and
+                               self._panel.layer_idx == li and
                                self._panel.neuron_idx == ni)
 
                 if is_hovered or is_selected:
                     pygame.draw.circle(surf, (255, 255, 180), (int(sx), int(sy)), r + 5)
 
-                pygame.draw.circle(surf, col,          (int(sx), int(sy)), r)
+                pygame.draw.circle(surf, col,            (int(sx), int(sy)), r)
                 pygame.draw.circle(surf, (200, 200, 255), (int(sx), int(sy)), r, max(1, r // 6))
 
-                # Value label (only when zoom > 0.7)
                 if zoom > 0.7:
                     lbl = font.render(f"{act:+.2f}", True, _TEXT_DIM)
                     surf.blit(lbl, (int(sx) - lbl.get_width() // 2,
@@ -538,24 +614,17 @@ class NeuralNetworkVisualizer:
 
     def _draw_layer_labels(self, surf):
         font  = self._font_body
-        sizes = [self.nn.layer_sizes[i] for i in range(len(self.nn.layer_sizes))]
-        names = ["Input"] + [
-            f"Layer {i}" + (" (out)" if i == len(self.nn.layers) else "")
-            for i in range(1, len(self.nn.layer_sizes))
-        ]
-        n_layers = len(self._positions)
+        nn    = self.nn
         for li, lpos in enumerate(self._positions):
             if not lpos:
                 continue
-            wx, _ = lpos[0]
-            # put label above the topmost neuron
-            _, top_wy = lpos[0]
+            wx, top_wy = lpos[0]
             sx, sy = self._ws(wx, top_wy - self.NEURON_R - 22)
             n_shown = len(lpos)
-            n_total = sizes[li]
-            clipped = " …" if n_total > n_shown else ""
-            lbl_txt = f"{names[li]}  [{n_total}{clipped}]"
-            lbl = font.render(lbl_txt, True, _TEXT_ACCENT)
+            n_total = nn.layer_sizes[li + 1]
+            is_out  = (li == len(self._positions) - 1)
+            label   = f"{'Output' if is_out else f'Layer {li + 1}'}  [{n_total}{'…' if n_total > n_shown else ''}]"
+            lbl = font.render(label, True, _TEXT_ACCENT)
             surf.blit(lbl, (int(sx) - lbl.get_width() // 2, int(sy)))
 
     # ── HUD ───────────────────────────────────────────────────────────────────
@@ -572,40 +641,3 @@ class NeuralNetworkVisualizer:
             surf.blit(lbl, (8, y))
             y += 14
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Standalone demo  (python nn_visualizer.py)
-# ──────────────────────────────────────────────────────────────────────────────
-#
-# if __name__ == "__main__":
-#
-#
-#     pygame.init()
-#     W, H   = 1280, 720
-#     screen = pygame.display.set_mode((W, H))
-#     pygame.display.set_caption("Neural Network Visualizer")
-#     clock  = pygame.time.Clock()
-#
-#     nn = NeuralNetwork([4, 6, 6, 3])
-#     # Run a few random forward passes so neurons have activation values
-#     rng = np.random.default_rng(0)
-#     for _ in range(5):
-#         nn.forward(rng.standard_normal(4).tolist())
-#     w,h=700,500
-#     x,y=100,100
-#     vis = NeuralNetworkVisualizer(nn, width=w, height=h,offset=(x,y))
-#
-#     running = True
-#     while running:
-#         screen.fill(0)
-#         for event in pygame.event.get():
-#             if event.type == pygame.QUIT:
-#                 running = False
-#             vis.handle_event(event)
-#
-#         vis.draw()
-#         screen.blit(vis.surface, (x, y))
-#         pygame.display.flip()
-#         clock.tick(60)
-#
-#     pygame.quit()

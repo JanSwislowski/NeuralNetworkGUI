@@ -1,7 +1,7 @@
 import numpy as np
 from settings import *
 from neural_network import NeuralNetwork
-from data import get_mnist_data
+from data import get_mnist_data,get_xo_data
 def get_batch(images, labels, batch_size):
     indices = np.random.choice(len(images), batch_size)
     # print("Batch indices:", indices)  # Debugging line to check the generated indices
@@ -12,7 +12,14 @@ def train_network(batches,batchsize,epochs,learning_rate,images,labels,nn):
         print(batch, "total loss", nn.train(batch_images, batch_labels, epochs=epochs, learning_rate=learning_rate))
     print("Training complete!")
 
-images, labels = get_mnist_data()
-nn=NeuralNetwork(layers)
-train_network(batches,batch_size,epochs,learning_rate,images,labels,nn)
-nn.save("mnist_model.npz")
+def train_mnist():
+    images, labels = get_mnist_data()
+    nn=NeuralNetwork(layers)
+    train_network(batches,batch_size,epochs,learning_rate,images,labels,nn)
+    nn.save("mnist_model.npz")
+def train_xo():
+    images, labels = get_xo_data()
+    nn=NeuralNetwork(layers)
+    train_network(batches,batch_size,epochs,learning_rate,images,labels,nn)
+    nn.save("xo_model.npz")
+train_xo()

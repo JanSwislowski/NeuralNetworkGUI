@@ -1,5 +1,6 @@
 import struct
 import numpy as np
+from settings import x,o
 def rotate_images(images):
     arr=np.empty_like(images)
     for i in range(len(images)):
@@ -23,3 +24,17 @@ def get_mnist_data():
         images= images.astype(np.float32) / 255.0
 
     return images, labels
+def get_xo_data():
+    with open('XOmodel_traindata.txt', 'r') as f:
+        img=[]
+        labels=[]
+        lines=f.readlines()
+        for i in range(0,len(lines),2):
+            labels.append(lines[i].strip())
+            if labels[-1]=="x":
+                labels[-1]=x
+            else:
+                labels[-1]=o
+            img.append([float(j) for j in lines[i+1].split()])
+        return np.array(img),np.array(labels)
+

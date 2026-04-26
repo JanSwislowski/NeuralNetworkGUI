@@ -39,7 +39,7 @@ def get_color_at(arr, x, y, tile_w, tile_h):
     # Mean color (best default)
     color = block.mean(axis=(0, 1))
 
-    return tuple(color.astype(int))
+    return tuple(int(x) for x in color)
 
 
 def image_to_list(rows, cols, file):

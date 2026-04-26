@@ -30,48 +30,111 @@ class Label:
         return self.rect.w
     def get_height(self):
         return self.rect.h
-    def update(self):
+    def update(self,mp):
         if not self.function:
             return
         if pygame.mouse.get_pressed()[0]:
-            if self.rect.collidepoint(pygame.mouse.get_pos()):
+            if self.rect.collidepoint(mp):
                 self.function()
 
 class Label_list:
-    def __init__(self,x,y,max_width,font:pygame.font.Font,texts,color,label=None,label_font=None):
+    def __init__(self,x,y,max_width,font:pygame.font.Font,texts,color,max_items=False,pos_type=0):
         self.x=x
         self.y=y
         self.w=max_width
         self.font=font
-        self.generate_labels(texts,color)
-    def generate_labels(self,texts,color):
+        self.generate_labels(texts,color,max_items)
+        self.generate_rect()
+        self.pos_type=pos_type
+        if self.pos_type==1:
+            self.center()
+
+    def center(self):
+        diff=self.x-self.rect.centerx
+        self.rect.x+=diff
+        for i in self.labels:
+            i.rect.x+=diff
+        for i in self.helpers:
+            i.rect.x+=diff
+
+    def generate_rect(self):
+        padding=10
+        self.rect=scale_rect(pygame.Rect(self.x,self.y,self.mw,self.h),padding,padding)
+    def generate_labels(self,texts,color,mi):
         self.labels=[]
         self.helpers=[]
+        self.mw=0
         x=self.x
         y=self.y
         self.helpers.append(Label((x,y),"[",self.font,color,pos_type=1,padding=0))
         x+=self.helpers[-1].get_width()
-        for i in texts[:-1]:
+        for i in texts:
             self.labels.append(Label((x,y),str(i),self.font,color,pos_type=1,padding=0))
             x+=self.labels[-1].get_width()
             self.helpers.append(Label((x,y),", ",self.font,color,pos_type=1,padding=0))
             x+=self.helpers[-1].get_width()
             if x-self.x>=self.w:
+                self.mw=max(self.mw,x-self.x)
                 x=self.x
                 y+=self.labels[-1].get_height()
-        x-=self.helpers[-1].get_width()
-        self.helpers.pop()
-        self.helpers.append(Label((x,y),"]",self.font,color,pos_type=1))
+        if mi:
+            self.helpers.append(Label((x,y),"...]",self.font,color,pos_type=1))
+            print(1)
+        else:
+            self.helpers.append(Label((x,y),"]",self.font,color,pos_type=1))
+        x+=self.helpers[-1].get_width()
+
+
+        self.h=self.helpers[-1].rect.bottom-self.y
+        self.mw=max(self.mw,x-self.x)
     def draw(self,screen):
-        for i ,j in zip(self.helpers,self.labels):
-            i.draw(screen),j.draw(screen)
+        bg=(50,50,50)
+        border=(20,20,20)
+        r=10
+        pygame.draw.rect(screen,bg,self.rect,border_radius=r)
+        pygame.draw.rect(screen,border,self.rect,width=5,border_radius=r)
+        for i in self.helpers:
+            i.draw(screen)
+        for i in self.labels:
+            i.draw(screen)
     def update(self):
         for i ,j in zip(self.helpers,self.labels):
             i.update(),j.update()
+class input_str:
+    def __init__(self,x,y,max_width,font:pygame.font.Font,texts,color,res):
+        self.x=x
+        self.y=y
+        self.w=max_width
+        self.font=font
+        self.generate_labels(texts,color)
 
+        self.list=Label_list(600,420,600,font,res,(255,255,255),pos_type=1)
+    def generate_labels(self,texts,color):
+        self.labels=[]
+        x=self.x
+        y=self.y
+        for i in texts:
+            self.labels.append(Label((x,y),str(i),self.font,color,pos_type=1,padding=0))
+            x+=self.labels[-1].get_width()
+            if x-self.x>=self.w:
+                x=self.x
+                y+=self.labels[-1].get_height()
+    def draw(self,screen,mp):
+        for i in self.labels:
+            i.draw(screen)
+        self.list.draw(screen)
+
+        for i in range(len(self.labels)):
+            if self.labels[i].rect.collidepoint(mp):
+                w=6
+                pygame.draw.rect(screen,(20,200,30),scale_rect(self.list.labels[i].rect,7,3),width=w,border_radius=2)
+                pygame.draw.rect(screen,(20,30,200),scale_rect(self.labels[i].rect,7,3),width=w,border_radius=2)
+
+    def update(self):
+        pass
 
 class InputBoard:
-    def __init__(self,width,heigt,rows,cols,offset=(0,0),padding=7,image=None):
+    def __init__(self,width,heigt,rows,cols,offset=(0,0),padding=7,image=None,max_items=None,font=font):
         self.width=width
         self.height=heigt
         self.rows=rows
@@ -85,13 +148,19 @@ class InputBoard:
             self.tiles=image_to_list(rows,cols,image)
         else: self.tiles=[0 for i in range(self.rows*self.cols)]
 
-        print(self.tiles)
         self.surface=pygame.Surface((self.width+padding*2,self.height+padding*2))
 
         self.padding=padding
         self.offset=offset
 
-        self.list=Label_list(300,600,600,font_verybig,self.tiles,(255,255,255))
+        self.font=font
+        if max_items==None: self.max_items=-1
+        else: self.max_items=max_items
+        # print(max_items)
+        self.generate_list()
+    def generate_list(self):
+        t=self.tiles[:self.max_items] if self.max_items!=-1 else self.tiles
+        self.list=Label_list(600,580,600,self.font,t,(200,200,200),max_items=True if self.max_items!=-1 else False,pos_type=1)
     def draw_white(self,i,j):
         rect=pygame.Rect((i*self.tile_w+self.padding,j*self.tile_h+self.padding,self.tile_w,self.tile_h))
         if self.tiles[i*self.rows+j]:
@@ -100,7 +169,7 @@ class InputBoard:
     def draw_color(self,i,j):
         rect=pygame.Rect((i*self.tile_w+self.padding,j*self.tile_h+self.padding,self.tile_w,self.tile_h))
         pygame.draw.rect(self.surface,self.tiles[i*self.rows+j],rect)
-    def draw(self,screen,pos):
+    def draw(self,screen,pos,mp):
         self.surface.fill((0,0,0))
         color2=(50,50,50)
         for i in range(self.cols):
@@ -119,8 +188,9 @@ class InputBoard:
         for i in range(self.cols):
             for j in range(self.rows):
                 rect=pygame.Rect((i*self.tile_w+self.padding+pos[0],j*self.tile_h+self.padding+pos[1],self.tile_w,self.tile_h))
-                if rect.collidepoint(pygame.mouse.get_pos()):
-                    pygame.draw.rect(screen,(20,200,30),scale_rect(self.list.labels[i*self.rows+j ].rect,5,3),width=3,border_radius=2)
+                if rect.collidepoint(mp) and (self.max_items==-1 or i*self.rows+j<self.max_items):
+                    w=6
+                    pygame.draw.rect(screen,(20,200,30),scale_rect(self.list.labels[i*self.rows+j ].rect,7,3),width=w,border_radius=3)
 
         return self.surface
     def update(self):
@@ -137,13 +207,18 @@ class InputBoard:
         self.cols=cols
         self.tile_w=self.width//self.cols
         self.tile_h=self.height//self.rows
+        dec=100.0
+        for i in range(len(self.tiles)):
+            self.tiles[i]=int(self.tiles[i]*dec)/dec
 
-        self.list=Label_list(200,500,800,font,self.tiles,(255,255,255))
+        self.generate_list()
 
 
 
 class Board:
-    def __init__(self,width,heigt,rows,cols,radius=5,offset=(0,0),padding=7):
+    def __init__(self,width,heigt,rows,cols,radius=5,offset=(0,0),padding=7,alfa=0.4):
+        self.alfa=alfa
+
         self.width=width
         self.height=heigt
         self.rows=rows
@@ -171,10 +246,10 @@ class Board:
         color=(200,130,120)
         pygame.draw.rect(self.surface,color,pygame.Rect(0,0,self.width+self.padding,self.height+self.padding),width=self.padding,border_radius=10)
         return self.surface
-    def update(self):
+    def update(self,mp):
         ret=False
 
-        mouse_pos=pygame.mouse.get_pos()
+        mouse_pos=mp
         mouse_pos=(mouse_pos[0]-self.offset[0]-self.padding,mouse_pos[1]-self.offset[1]-self.padding)
         mouse_pressed=pygame.mouse.get_pressed()
         keys=pygame.key.get_pressed()
@@ -185,481 +260,143 @@ class Board:
                 for y in range(max(0,math.floor(j-self.r)),min(self.rows,math.ceil(j+self.r+1))):
                     if (i-x)**2+(j-y)**2>=self.r**2:
                         continue
-                    self.tiles[x*self.rows+y]+=0.345
+                    self.tiles[x*self.rows+y]+=self.alfa#34
                     self.tiles[x*self.rows+y]=min(1,self.tiles[x*self.rows+y])
                     ret=True
         if keys[pygame.K_c]:
             self.reset()
             ret=True
+        if keys[pygame.K_x]:
+            self.save("x")
+            time.sleep(2)
+        if keys[pygame.K_o]:
+            self.save("o")
+            time.sleep(2)
+
         return ret
     def reset(self):
         self.tiles=[0 for i in range(self.rows*self.cols)]
     def set(self,tiles):
         self.tiles=tiles
-# ─────────────────────────────────────────────
-#  Palette
-# ─────────────────────────────────────────────
-C_BG          = (15,  17,  26)
-C_PANEL       = (28,  32,  48)
-C_PANEL_HOVER = (36,  41,  62)
-C_BORDER      = (55,  65, 100)
-C_BORDER_OPEN = (64, 190, 255)
-C_ACCENT      = (64, 190, 255)
-C_TEXT        = (220, 228, 255)
-C_TEXT_DIM    = (110, 125, 165)
-C_ITEM_HOVER  = (38,  68, 110)
-C_ITEM_SEL    = (30,  80, 130)
-C_ARROW       = (120, 145, 200)
-C_SHADOW      = (  0,   0,   0)
+    def save(self,label):
+        with open("XOmodel_traindata.txt", "a") as f:
+            f.write(label+"/n")
+            f.write(" ".join([str(i) for i in self.tiles])+"/n")
 
-# ─────────────────────────────────────────────
-#  Easing helpers
-# ─────────────────────────────────────────────
-def ease_out_expo(t: float) -> float:
-    return 1.0 if t >= 1.0 else 1 - 2 ** (-10 * t)
-
-def ease_in_expo(t: float) -> float:
-    return 0.0 if t <= 0.0 else 2 ** (10 * t - 10)
-
-def ease_out_back(t: float, s: float = 1.4) -> float:
-    c1 = s
-    c3 = c1 + 1
-    return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
-
-def lerp(a, b, t):
-    return a + (b - a) * t
-
-def lerp_color(c1, c2, t):
-    return tuple(int(lerp(c1[i], c2[i], t)) for i in range(3))
-
-
-# ─────────────────────────────────────────────
-#  Picker
-# ─────────────────────────────────────────────
-class Picker:
-    """
-    A drop-down picker widget for Pygame.
-
-    Usage
-    -----
-    picker = Picker(x=50, y=50, width=260, options=["Cat","Dog","Fish"],
-                    font=font, placeholder="Select…")
-
-    # in event loop:
-    picker.handle_event(event)
-
-    # in draw loop:
-    screen.blit(picker.draw(), picker.surface_offset())
-
-    # read selected value:
-    value = picker.selected   # None or string
-    """
-
-    HEADER_H   = 44          # height of the closed header
-    ITEM_H     = 38          # height of each dropdown item
-    ANIM_OPEN  = 0.28        # seconds to open
-    ANIM_CLOSE = 0.18        # seconds to close
-    RADIUS     = 10          # corner radius
-    MAX_ITEMS_VISIBLE = 6    # scroll after this many
-
+class Picker_with_func:
     def __init__(self,
                  x: int, y: int,
                  width: int,
+                 height:int,
                  options: list[str],
                  font: pygame.font.Font,
-                 font_small: pygame.font.Font | None = None,
-                 placeholder: str = "Select an option…",
-                 selected: str | None = None):
+                 func:list,
+                 ):
+        self.picker=Picker(x,y,width,height,options,font)
+        self.func=func
+        self.cur=0
+        self.options=options
+        # self.pos=(x,y)
+    def draw(self,screen):
+        self.picker.draw(screen)
+    def handle_event(self,ev,mp):
+        self.picker.handle_event(ev,mp)
+    def update(self,mp):
+        self.picker.update(mp)
+        if self.picker.selected_index!=self.cur:
+            self.cur=self.picker.selected_index
+            self.func[self.cur]()
 
-        self.x = x
-        self.y = y
-        self.width    = width
-        self.options  = options
-        self.font     = font
-        self.font_sm  = font_small or font
-        self.placeholder = placeholder
-        self.selected    = selected
 
-        # animation state
-        self._open       = False
-        self._anim_t     = 0.0        # 0=closed, 1=open
-        self._anim_dir   = 0          # +1 opening, -1 closing
-        self._last_time  = time.time()
-
-        # hover / interaction
-        self._hover_header = False
-        self._hover_item   = -1       # index of hovered item
-        self._scroll       = 0        # first visible item index
-
-        # ripple on selection
-        self._ripple_alpha = 0.0
-        self._ripple_item  = -1
-
-        # arrow bob phase
-        self._arrow_phase  = 0.0
-
-        # surface – tall enough for header + all items
-        visible_items = min(len(options), self.MAX_ITEMS_VISIBLE)
-        self._surf_h  = self.HEADER_H + visible_items * self.ITEM_H + 8
-        self._surface = pygame.Surface((width, self._surf_h), pygame.SRCALPHA)
-
-    # ── public helpers ────────────────────────────────────────────────────────
-
-    def surface_offset(self):
-        """Return (x, y) where to blit the surface on the parent surface."""
-        return (self.x, self.y)
-
-    def total_height(self):
-        """Current rendered height (useful for layout)."""
-        return self.HEADER_H + self._dropdown_h()
-
-    def set_options(self, options: list[str], keep_selected: bool = True):
-        old = self.selected
+class Picker:
+    def __init__(self, x, y, width, height, options, font):
+        self.rect = pygame.Rect(x, y, width, height)
         self.options = options
-        if not keep_selected or old not in options:
-            self.selected = None
-        visible_items = min(len(options), self.MAX_ITEMS_VISIBLE)
-        self._surf_h  = self.HEADER_H + visible_items * self.ITEM_H + 8
-        self._surface = pygame.Surface((self.width, self._surf_h), pygame.SRCALPHA)
-        self._scroll  = 0
+        self.selected_index = 0
+        self.font = font
 
-    # ── event handling ────────────────────────────────────────────────────────
+        self.is_open = False
+        self.animation_progress = 0  # 0 = closed, 1 = open
+        self.animation_speed = 0.2
 
-    def handle_event(self, event: pygame.event.Event) -> bool:
-        """
-        Returns True if the event was consumed by this widget.
-        Pass absolute mouse coordinates; widget adjusts internally.
-        """
-        if event.type == pygame.MOUSEMOTION:
-            mx, my = event.pos[0] - self.x, event.pos[1] - self.y
-            self._hover_header = (0 <= mx < self.width and
-                                   0 <= my < self.HEADER_H)
-            if self._open or self._anim_t > 0:
-                self._hover_item = self._item_at(mx, my)
-            else:
-                self._hover_item = -1
-            return self._hover_header or self._hover_item >= 0
+        self.option_height = height
+        self.bg_color = (100, 100, 100)  # not transparent
+        self.text_color = (0, 0, 0)
+        self.hover_index = -1
 
-        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            mx, my = event.pos[0] - self.x, event.pos[1] - self.y
-            if 0 <= mx < self.width and 0 <= my < self.HEADER_H:
-                self._toggle()
-                return True
-            idx = self._item_at(mx, my)
-            if idx >= 0:
-                self._select(idx)
-                return True
-            # click outside – close
-            if self._open:
-                self._close()
-                return True
+    def handle_event(self, event,mp):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.rect.collidepoint(mp):
+                self.is_open = not self.is_open
+            elif self.is_open:
+                for i, option_rect in enumerate(self.get_option_rects()):
+                    if option_rect.collidepoint(mp):
+                        self.selected_index = i
+                        self.is_open = False
 
-        elif event.type == pygame.MOUSEWHEEL:
-            if self._open:
-                mx, my = pygame.mouse.get_pos()
-                mx -= self.x; my -= self.y
-                if (0 <= mx < self.width and
-                        self.HEADER_H <= my < self._surf_h):
-                    max_scroll = max(0, len(self.options) - self.MAX_ITEMS_VISIBLE)
-                    self._scroll = max(0, min(max_scroll,
-                                              self._scroll - event.y))
-                    return True
+    def update(self,mp):
+        # animation
+        target = 1 if self.is_open else 0
+        if self.animation_progress < target:
+            self.animation_progress = min(target, self.animation_progress + self.animation_speed)
+        elif self.animation_progress > target:
+            self.animation_progress = max(target, self.animation_progress - self.animation_speed)
 
-        elif event.type == pygame.KEYDOWN and self._open:
-            if event.key == pygame.K_ESCAPE:
-                self._close(); return True
-            elif event.key == pygame.K_UP:
-                self._hover_item = max(0, self._hover_item - 1)
-                self._ensure_visible(self._hover_item); return True
-            elif event.key == pygame.K_DOWN:
-                self._hover_item = min(len(self.options)-1,
-                                       self._hover_item + 1)
-                self._ensure_visible(self._hover_item); return True
-            elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                if 0 <= self._hover_item < len(self.options):
-                    self._select(self._hover_item); return True
-
-        return False
-
-    # ── draw ──────────────────────────────────────────────────────────────────
-
-    def draw(self) -> pygame.Surface:
-        now = time.time()
-        dt  = min(now - self._last_time, 0.1)
-        self._last_time = now
-        self._update_anim(dt)
-
-        surf = self._surface
-        surf.fill((0, 0, 0, 0))
-
-        t   = self._anim_t              # 0=closed … 1=open
-        dh  = self._dropdown_h()        # current pixel height of dropdown
-
-        # ── shadow when open ──────────────────────────────────────────
-        if t > 0.01:
-            shadow_alpha = int(120 * t)
-            for i in range(8):
-                s = pygame.Surface((self.width + i*4, self.HEADER_H + dh + i*4),
-                                    pygame.SRCALPHA)
-                a = max(0, shadow_alpha - i * 18)
-                s.fill((0, 0, 0, a))
-                surf.blit(s, (-i*2, i*2))
-
-        # ── dropdown panel (drawn first so header sits on top) ────────
-        if t > 0.01 and dh > 2:
-            dp_rect = pygame.Rect(0, self.HEADER_H - self.RADIUS,
-                                  self.width, dh + self.RADIUS)
-            self._draw_dropdown(surf, dp_rect, t)
-
-        # ── header ────────────────────────────────────────────────────
-        self._draw_header(surf, t)
-
-        return surf
-
-    # ── private drawing helpers ───────────────────────────────────────────────
-
-    def _draw_header(self, surf, t):
-        w, h = self.width, self.HEADER_H
-        is_open = t > 0.01
-
-        # border color pulse
-        border_col = lerp_color(C_BORDER, C_BORDER_OPEN, t)
-
-        # header bg
-        bg_col = lerp_color(C_PANEL,
-                             C_PANEL_HOVER if self._hover_header else C_PANEL,
-                             0.5 if self._hover_header else 0)
-        if is_open:
-            # flat bottom when open
-            pygame.draw.rect(surf, bg_col,
-                             (0, 0, w, h + self.RADIUS))
-            pygame.draw.rect(surf, bg_col,
-                             (0, 0, w, h), border_radius=self.RADIUS)
-            # redraw bottom square
-            pygame.draw.rect(surf, bg_col,
-                             (0, h - self.RADIUS, w, self.RADIUS))
+        # hover
+        if self.is_open:
+            mouse_pos = mp
+            self.hover_index = -1
+            for i, rect in enumerate(self.get_option_rects()):
+                if rect.collidepoint(mouse_pos):
+                    self.hover_index = i
         else:
-            pygame.draw.rect(surf, bg_col,
-                             (0, 0, w, h), border_radius=self.RADIUS)
+            self.hover_index = -1
 
-        # border
-        border_thick = 2 if is_open else 1
-        if is_open:
-            pygame.draw.rect(surf, border_col,
-                             (0, 0, w, h), width=border_thick,
-                             border_top_left_radius=self.RADIUS,
-                             border_top_right_radius=self.RADIUS,
-                             border_bottom_left_radius=0,
-                             border_bottom_right_radius=0)
-            # side borders continue down
-            pygame.draw.line(surf, border_col, (0, 0), (0, h))
-            pygame.draw.line(surf, border_col, (w-1, 0), (w-1, h))
-        else:
-            pygame.draw.rect(surf, border_col,
-                             (0, 0, w, h), width=border_thick,
-                             border_radius=self.RADIUS)
+    def draw(self, surface):
+        # draw selected
+        pygame.draw.rect(surface, self.bg_color, self.rect, border_radius=8)
+        text = self.font.render(self.options[self.selected_index], True, self.text_color)
+        surface.blit(text, text.get_rect(center=self.rect.center))
 
-        # accent line at top when open
-        if t > 0.01:
-            line_w = int(w * t)
-            lx = (w - line_w) // 2
-            pygame.draw.rect(surf, C_ACCENT, (lx, 0, line_w, 2),
-                             border_radius=1)
+        # draw dropdown with animation
+        if self.animation_progress > 0:
+            total_height = int(len(self.options) * self.option_height * self.animation_progress)
+            dropdown_rect = pygame.Rect(
+                self.rect.x,
+                self.rect.y + self.rect.height,
+                self.rect.width,
+                total_height
+            )
 
-        # label text
-        label  = self.selected or self.placeholder
-        color  = C_TEXT if self.selected else C_TEXT_DIM
-        txt    = self.font.render(label, True, color)
-        ty     = (h - txt.get_height()) // 2
-        # clip text to avoid overlapping arrow
-        clip   = pygame.Rect(14, 0, w - 48, h)
-        surf.set_clip(clip)
-        surf.blit(txt, (14, ty))
-        surf.set_clip(None)
+            pygame.draw.rect(surface, self.bg_color, dropdown_rect, border_radius=8)
 
-        # arrow
-        self._draw_arrow(surf, w - 30, h // 2, t)
+            for i, option in enumerate(self.options):
+                option_rect = pygame.Rect(
+                    self.rect.x,
+                    self.rect.y + self.rect.height + i * self.option_height,
+                    self.rect.width,
+                    self.option_height
+                )
 
-    def _draw_arrow(self, surf, cx, cy, t):
-        # rotate from 0° (point down) to 180° (point up) as t goes 0→1
-        # add subtle bob animation
-        bob    = math.sin(self._arrow_phase) * 1.5
-        angle  = math.pi * t          # 0 → π
-        size   = 7
-        # three points of a chevron
-        pts = []
-        for dx, dy in [(-size, -size*0.5), (0, size*0.5), (size, -size*0.5)]:
-            rx = dx * math.cos(angle) - dy * math.sin(angle)
-            ry = dx * math.sin(angle) + dy * math.cos(angle)
-            pts.append((cx + rx, cy + ry + bob))
-        col = lerp_color(C_ARROW, C_ACCENT, t)
-        pygame.draw.lines(surf, col, False, pts, 2)
+                if option_rect.bottom > dropdown_rect.bottom:
+                    break
 
-    def _draw_dropdown(self, surf, rect, t):
-        w = self.width
-        clip_h = int(self._max_dropdown_h() * ease_out_back(t, s=1.2))
-        clip_h = min(clip_h, self._max_dropdown_h())
+                if i == self.hover_index:
+                    pygame.draw.rect(surface, (220, 220, 220), option_rect,border_radius=8)
 
-        # clip so items appear to slide in
-        clip_rect = pygame.Rect(0, self.HEADER_H, w, clip_h)
-        surf.set_clip(clip_rect)
+                text = self.font.render(option, True, self.text_color)
+                surface.blit(text, text.get_rect(center=option_rect.center))
 
-        # background
-        dp_rect = pygame.Rect(0, self.HEADER_H, w,
-                              self._max_dropdown_h())
-        pygame.draw.rect(surf, C_PANEL, dp_rect,
-                         border_bottom_left_radius=self.RADIUS,
-                         border_bottom_right_radius=self.RADIUS)
-
-        # items
-        visible = min(len(self.options), self.MAX_ITEMS_VISIBLE)
-        for i in range(visible):
-            idx  = i + self._scroll
-            if idx >= len(self.options): break
-            iy   = self.HEADER_H + i * self.ITEM_H + 4
-            item_rect = pygame.Rect(4, iy, w - 8, self.ITEM_H - 2)
-
-            # staggered fade-in
-            item_delay = i * 0.035
-            item_t     = max(0.0, min(1.0, (t - item_delay) / 0.25))
-            item_alpha = int(255 * ease_out_expo(item_t))
-
-            # bg highlight
-            is_sel   = self.options[idx] == self.selected
-            is_hover = self._hover_item == idx
-
-            if is_sel:
-                bg = lerp_color(C_ITEM_SEL, C_ITEM_HOVER, 0.3 if is_hover else 0)
-                pygame.draw.rect(surf, bg, item_rect, border_radius=6)
-            elif is_hover:
-                pygame.draw.rect(surf, C_ITEM_HOVER, item_rect, border_radius=6)
-
-            # ripple
-            if self._ripple_item == idx and self._ripple_alpha > 0:
-                rip_surf = pygame.Surface((item_rect.width, item_rect.height),
-                                           pygame.SRCALPHA)
-                rip_surf.fill((*C_ACCENT, int(self._ripple_alpha * 80)))
-                surf.blit(rip_surf, item_rect.topleft)
-
-            # text
-            label   = self.options[idx]
-            txt_col = lerp_color(C_TEXT_DIM, C_TEXT, item_t)
-            if is_sel:
-                txt_col = C_ACCENT
-            txt     = self.font.render(label, True, txt_col)
-            # slide in from left
-            slide   = int((1 - ease_out_expo(item_t)) * 18)
-            tx      = item_rect.x + 12 + slide
-            ty      = item_rect.y + (item_rect.height - txt.get_height()) // 2
-
-            txt_s = pygame.Surface(txt.get_size(), pygame.SRCALPHA)
-            txt_s.blit(txt, (0, 0))
-            txt_s.set_alpha(item_alpha)
-            surf.blit(txt_s, (tx, ty))
-
-            # checkmark for selected
-            if is_sel:
-                self._draw_check(surf,
-                                  item_rect.right - 22,
-                                  item_rect.centery,
-                                  item_alpha)
-
-        # scrollbar
-        if len(self.options) > self.MAX_ITEMS_VISIBLE:
-            self._draw_scrollbar(surf, clip_h)
-
-        # border
-        pygame.draw.rect(surf, lerp_color(C_BORDER, C_BORDER_OPEN, t),
-                         pygame.Rect(0, self.HEADER_H - 1, w,
-                                     self._max_dropdown_h() + 1),
-                         width=1,
-                         border_bottom_left_radius=self.RADIUS,
-                         border_bottom_right_radius=self.RADIUS)
-        # hide top border (header draws its own)
-        pygame.draw.line(surf, C_PANEL,
-                         (1, self.HEADER_H), (w - 2, self.HEADER_H))
-
-        surf.set_clip(None)
-
-    def _draw_check(self, surf, cx, cy, alpha):
-        pts = [(cx - 6, cy), (cx - 2, cy + 4), (cx + 6, cy - 5)]
-        s = pygame.Surface((20, 16), pygame.SRCALPHA)
-        pygame.draw.lines(s, (*C_ACCENT, alpha), False,
-                          [(p[0]-cx+10, p[1]-cy+8) for p in pts], 2)
-        surf.blit(s, (cx - 10, cy - 8))
-
-    def _draw_scrollbar(self, surf, visible_h):
-        total   = len(self.options)
-        vis     = self.MAX_ITEMS_VISIBLE
-        ratio   = vis / total
-        bar_h   = max(20, int(visible_h * ratio))
-        track_h = visible_h
-        pos_t   = self._scroll / max(1, total - vis)
-        bar_y   = self.HEADER_H + int((track_h - bar_h) * pos_t)
-        sb_rect = pygame.Rect(self.width - 5, bar_y, 3, bar_h)
-        pygame.draw.rect(surf, C_BORDER_OPEN, sb_rect, border_radius=2)
-
-    # ── private logic helpers ─────────────────────────────────────────────────
-
-    def _toggle(self):
-        if self._open:
-            self._close()
-        else:
-            self._open_dropdown()
-
-    def _open_dropdown(self):
-        self._open    = True
-        self._anim_dir = 1
-        self._hover_item = -1
-
-    def _close(self):
-        self._open    = False
-        self._anim_dir = -1
-        self._hover_item = -1
-
-    def _select(self, idx: int):
-        self.selected       = self.options[idx]
-        self._ripple_item   = idx
-        self._ripple_alpha  = 1.0
-        self._close()
-
-    def _item_at(self, mx, my) -> int:
-        """Return option index at local coords (mx,my), or -1."""
-        if not (0 <= mx < self.width): return -1
-        rel = my - self.HEADER_H - 4
-        if rel < 0: return -1
-        i = int(rel // self.ITEM_H)
-        if 0 <= i < self.MAX_ITEMS_VISIBLE:
-            idx = i + self._scroll
-            if 0 <= idx < len(self.options):
-                return idx
-        return -1
-
-    def _ensure_visible(self, idx: int):
-        if idx < self._scroll:
-            self._scroll = idx
-        elif idx >= self._scroll + self.MAX_ITEMS_VISIBLE:
-            self._scroll = idx - self.MAX_ITEMS_VISIBLE + 1
-
-    def _update_anim(self, dt: float):
-        speed = 1.0 / (self.ANIM_OPEN if self._anim_dir >= 0 else self.ANIM_CLOSE)
-        self._anim_t = max(0.0, min(1.0,
-                           self._anim_t + self._anim_dir * speed * dt))
-        # bob
-        self._arrow_phase += dt * 2.5
-
-        # ripple decay
-        if self._ripple_alpha > 0:
-            self._ripple_alpha = max(0.0, self._ripple_alpha - dt * 3.0)
-
-    def _max_dropdown_h(self) -> int:
-        return min(len(self.options), self.MAX_ITEMS_VISIBLE) * self.ITEM_H + 8
-
-    def _dropdown_h(self) -> int:
-        t = self._anim_t
-        if t <= 0: return 0
-        return int(self._max_dropdown_h() * ease_out_back(t, s=1.2))
-
+    def get_option_rects(self):
+        rects = []
+        for i in range(len(self.options)):
+            rects.append(pygame.Rect(
+                self.rect.x,
+                self.rect.y + self.rect.height + i * self.option_height,
+                self.rect.width,
+                self.option_height
+            ))
+        return rects
 
 # ─────────────────────────────────────────────
 #  Colour palette
