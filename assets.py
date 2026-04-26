@@ -333,6 +333,7 @@ class Picker:
                     if option_rect.collidepoint(mp):
                         self.selected_index = i
                         self.is_open = False
+                self.is_open=False
 
     def update(self,mp):
         # animation
